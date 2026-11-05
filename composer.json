@@ -1,0 +1,72 @@
+{
+    "name": "particle-academy/fancy-compliance",
+    "description": "Consent for Laravel: host-defined categories, an append-only consent ledger per user and per guest, withdrawal, re-consent on a new policy version, and a server gate other packages check before collecting.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "consent", "gdpr", "eprivacy", "cookies", "cookie-banner", "privacy", "compliance", "inertia", "fancy", "particle-academy"],
+    "homepage": "https://github.com/Particle-Academy/fancy-compliance",
+    "support": {
+        "issues": "https://github.com/Particle-Academy/fancy-compliance/issues",
+        "source": "https://github.com/Particle-Academy/fancy-compliance"
+    },
+    "authors": [
+        {
+            "name": "Particle Academy",
+            "homepage": "https://github.com/Particle-Academy"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-json": "*",
+        "illuminate/auth": "^13.0",
+        "illuminate/console": "^13.0",
+        "illuminate/contracts": "^13.0",
+        "illuminate/cookie": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/routing": "^13.0",
+        "illuminate/support": "^13.0",
+        "illuminate/view": "^13.0"
+    },
+    "require-dev": {
+        "laravel/framework": "^13.30",
+        "pestphp/pest": "^5.0"
+    },
+    "suggest": {
+        "inertiajs/inertia-laravel": "Shares the current consent and the categories as an Inertia prop, so the UI renders without a fetch.",
+        "particle-academy/fancy-heuristics": "Can gate its collection on Consent::allows() once it adopts the ConsentGate contract."
+    },
+    "autoload": {
+        "psr-4": {
+            "FancyCompliance\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FancyCompliance\\Tests\\": "tests/",
+            "Inertia\\": "tests/Stubs/Inertia/"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "lint": "@php tests/lint.php"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "FancyCompliance\\ComplianceServiceProvider"
+            ],
+            "aliases": {
+                "Consent": "FancyCompliance\\Facades\\Consent"
+            }
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
