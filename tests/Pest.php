@@ -20,6 +20,9 @@ uses()->beforeEach(function (): void {
     Inertia\Inertia::$shared = [];
 })->afterEach(function (): void {
     Carbon::setTestNow();
+    // Blade::render() caches its view names statically, against the previous kernel's view factory.
+    Illuminate\View\Component::flushCache();
+    Illuminate\View\Component::forgetFactory();
     Facade::clearResolvedInstances();
     Container::setInstance(null);
 })->in(__DIR__);

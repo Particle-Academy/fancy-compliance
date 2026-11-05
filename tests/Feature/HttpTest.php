@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Session\TokenMismatchException;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -90,9 +91,10 @@ it('sits behind the host web group, so CSRF protection applies', function (): vo
     complianceApp([], 'production');
     app('router')->middlewareGroup('web', [EncryptCookies::class, StartSession::class, ValidateCsrfToken::class]);
 
-    $refused = http('POST', '/fancy-compliance/consent', ['granted' => ['analytics']]);
-    expect($refused['status'])->toBe(419)
-        ->and(ledgerRows())->toBe([]);
+    // The router alone has no exception handler; the host's handler renders this as 419.
+    expect(fn () => http('POST', '/fancy-compliance/consent', ['granted' => ['analytics']]))
+        ->toThrow(TokenMismatchException::class);
+    expect(ledgerRows())->toBe([]);
 });
 
 it('accepts a POST that carries the session CSRF token', function (): void {
