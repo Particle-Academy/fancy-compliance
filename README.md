@@ -124,6 +124,13 @@ closed, but collects nothing.
 ```
 
 - **Inertia:** shared as `fancyCompliance` (`inertia.key`, or `inertia.share => false`).
+  It is shared on every request by `FancyCompliance\Http\ShareInertiaProps`, which the
+  package pushes onto your `web` group.
+  - **Octane and other long-lived processes** (an in-process Pest browser server, say)
+    serve many requests from one booted app and flush Inertia's shared props between them,
+    so a share made once at boot is gone from the second request. The middleware is what
+    keeps the prop there. If your Inertia pages are served from a group other than `web`,
+    add `ShareInertiaProps::class` to that group yourself.
 - **Blade pages:** `@fancyComplianceProps` prints it as
   `<script type="application/json" id="fancy-compliance-props">`, with every `<`, `>`, `&`
   and quote escaped.

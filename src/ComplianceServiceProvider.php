@@ -8,9 +8,11 @@ use FancyCompliance\Console\PruneCommand;
 use FancyCompliance\Contracts\ConsentGate;
 use FancyCompliance\Http\ConsentController;
 use FancyCompliance\Http\RequireConsent;
+use FancyCompliance\Http\ShareInertiaProps;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Compilers\BladeCompiler;
+use Inertia\Inertia;
 
 final class ComplianceServiceProvider extends ServiceProvider
 {
@@ -51,9 +53,13 @@ final class ComplianceServiceProvider extends ServiceProvider
             $blade->directive('fancyComplianceProps', fn (): string => '<?php echo app('.ConsentManager::class.'::class)->propsScript(); ?>');
         });
 
-        // Inertia is optional: share only when the host has it.
-        if ($config->get('fancy-compliance.inertia.share', true) && class_exists(\Inertia\Inertia::class)) {
-            \Inertia\Inertia::share(
+        // Inertia is optional: share only when the host has it. The boot-time share
+        // covers a classic one-request-per-process server on any route; the `web`
+        // middleware shares again per request, because Octane and other long-lived
+        // servers flush Inertia's shared props between requests.
+        if ($config->get('fancy-compliance.inertia.share', true) && class_exists(Inertia::class)) {
+            $router->pushMiddlewareToGroup('web', ShareInertiaProps::class);
+            Inertia::share(
                 (string) $config->get('fancy-compliance.inertia.key', 'fancyCompliance'),
                 fn (): array => $this->app->make(ConsentManager::class)->props(),
             );

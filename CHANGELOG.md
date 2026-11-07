@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+### Fixed
+
+- **The Inertia prop is shared on every request, so Octane keeps it.** The provider shared
+  `fancyCompliance` once, in `boot()`. Inertia's `ResponseFactory` is a singleton, and
+  long-lived servers (Octane, an in-process Pest browser server) flush its shared props
+  between requests, so from the second request the client got no prop and
+  `useConsentController` threw on `undefined.routes`. A new middleware,
+  `FancyCompliance\Http\ShareInertiaProps`, now shares it per request and is pushed onto
+  the `web` group. The boot-time share stays for routes outside `web` on a classic server.
+  **Nothing to do** unless your Inertia pages live outside the `web` group and you run
+  Octane: then add `ShareInertiaProps::class` to that group. `inertia.share` and
+  `inertia.key` work as before.
+
 ## [0.1.0] - 2026-11-05
 
 ### Added

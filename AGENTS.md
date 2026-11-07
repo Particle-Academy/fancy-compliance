@@ -22,6 +22,9 @@ append-only consent ledger, and a server gate. Its UI is
 - `ComplianceServiceProvider`: routes, middleware alias, `@consent` / `@fancyComplianceProps`,
   `Inertia::share('fancyCompliance', ...)` only when `Inertia\Inertia` exists, and the
   `Login` listener that links a guest's decision to the user.
+- `Http\ShareInertiaProps`: pushed onto `web`; re-shares the Inertia prop on every request.
+  A boot-time share alone is lost under Octane, which flushes Inertia's shared props
+  between requests.
 
 ## Invariants a change must keep
 

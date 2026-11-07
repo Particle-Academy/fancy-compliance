@@ -52,6 +52,38 @@ it('shares the same props with Inertia when Inertia is installed', function (): 
         ->and($value())->toBe(consent()->props());
 });
 
+it('shares the Inertia prop on every request, even after the shared props are flushed', function (): void {
+    // Octane (or an in-process browser-test server) serves many requests from one
+    // booted app, and flushes Inertia's shared props between them. A share made
+    // once in boot() is gone from the second request on.
+    $app = complianceApp();
+    $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+
+    foreach (['first', 'second'] as $visit) {
+        Inertia\Inertia::flushShared();
+        $response = http('GET', '/page');
+
+        expect($response['status'])->toBe(200)
+            ->and($response['body'])->toContain('fancyCompliance');
+    }
+
+    $value = Inertia\Inertia::$shared['fancyCompliance'];
+    expect($value)->toBeInstanceOf(Closure::class)
+        ->and($value())->toBe(consent()->props());
+});
+
+it('shares the renamed Inertia prop per request, and nothing when sharing is off', function (): void {
+    $app = complianceApp(['fancy-compliance.inertia.key' => 'consent']);
+    $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+    Inertia\Inertia::flushShared();
+    expect(http('GET', '/page')['body'])->toBe(['consent']);
+
+    Inertia\Inertia::$shared = [];
+    $app = complianceApp(['fancy-compliance.inertia.share' => false]);
+    $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+    expect(http('GET', '/page')['body'])->toBe([]);
+});
+
 it('lets the host rename or turn off the Inertia prop', function (): void {
     complianceApp(['fancy-compliance.inertia.key' => 'consent']);
     expect(Inertia\Inertia::$shared)->toHaveKey('consent');

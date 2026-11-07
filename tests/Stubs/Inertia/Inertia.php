@@ -26,4 +26,14 @@ final class Inertia
         }
         self::$shared[$key] = $value;
     }
+
+    /**
+     * Mirrors ResponseFactory::flushShared() (inertia-laravel v3.1.0,
+     * src/ResponseFactory.php), which long-lived servers such as Octane call
+     * between requests: it empties every shared prop.
+     */
+    public static function flushShared(): void
+    {
+        self::$shared = [];
+    }
 }
