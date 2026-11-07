@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use FancyCompliance\ConsentManager;
+use FancyCompliance\Console\PruneCommand;
 use FancyCompliance\Tests\Support\TestApp;
 use FancyCompliance\Tests\Support\User;
 use Illuminate\Container\Container;
@@ -11,6 +12,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\View\Component;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\HttpFoundation\Cookie;
 
 // Every test boots its own kernel; drop it afterwards so no container, facade,
@@ -18,11 +22,12 @@ use Symfony\Component\HttpFoundation\Cookie;
 uses()->beforeEach(function (): void {
     Carbon::setTestNow('2026-11-05 12:00:00');
     Inertia\Inertia::$shared = [];
+    Inertia\Inertia::$shareCalls = [];
 })->afterEach(function (): void {
     Carbon::setTestNow();
     // Blade::render() caches its view names statically, against the previous kernel's view factory.
-    Illuminate\View\Component::flushCache();
-    Illuminate\View\Component::forgetFactory();
+    Component::flushCache();
+    Component::forgetFactory();
     Facade::clearResolvedInstances();
     Container::setInstance(null);
 })->in(__DIR__);
@@ -39,9 +44,10 @@ function defaultCategories(): array
     ];
 }
 
-function complianceApp(array $config = [], string $env = 'testing'): Application
+/** @param array<string, list<string>>|null $kernelGroups when given, a real HTTP kernel owns the middleware groups */
+function complianceApp(array $config = [], string $env = 'testing', ?array $kernelGroups = null): Application
 {
-    return TestApp::boot(['fancy-compliance.categories' => defaultCategories(), ...$config], $env);
+    return TestApp::boot(['fancy-compliance.categories' => defaultCategories(), ...$config], $env, $kernelGroups);
 }
 
 function consent(): ConsentManager
@@ -97,10 +103,10 @@ function ledgerRows(): array
 /** Runs the prune command the way artisan would, and returns its exit code. */
 function runPrune(): int
 {
-    $command = app(FancyCompliance\Console\PruneCommand::class);
+    $command = app(PruneCommand::class);
     $command->setLaravel(app());
 
-    return $command->run(new Symfony\Component\Console\Input\ArrayInput([]), new Symfony\Component\Console\Output\BufferedOutput);
+    return $command->run(new ArrayInput([]), new BufferedOutput);
 }
 
 function makeUser(string $name = 'Ada'): User

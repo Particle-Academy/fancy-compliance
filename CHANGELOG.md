@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-07
+
+### Fixed
+
+- **The Inertia prop went missing again under Pest's in-process browser server.** 0.1.1
+  pushed `ShareInertiaProps` onto the router's `web` group. In a Laravel 11+ app the HTTP
+  kernel owns the groups, and its `syncMiddlewareToRouter()` rewrites the router's groups
+  from its own, so the next sync dropped the middleware and the prop was absent from the
+  second request on. The provider now adds it with the kernel's `appendMiddlewareToGroup()`
+  when the kernel has a `web` group, and falls back to the router otherwise. The kernel
+  skips a middleware the group already has, so a host that also declares it gets one entry.
+  **Consumer action:** none. If you worked around 0.1.1 by declaring `ShareInertiaProps` in
+  `bootstrap/app.php`, you can keep it or remove it.
+
 ## [0.1.1] - 2026-11-07
 
 ### Fixed

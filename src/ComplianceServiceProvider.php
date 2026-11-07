@@ -10,6 +10,8 @@ use FancyCompliance\Http\ConsentController;
 use FancyCompliance\Http\RequireConsent;
 use FancyCompliance\Http\ShareInertiaProps;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Compilers\BladeCompiler;
 use Inertia\Inertia;
@@ -58,7 +60,7 @@ final class ComplianceServiceProvider extends ServiceProvider
         // middleware shares again per request, because Octane and other long-lived
         // servers flush Inertia's shared props between requests.
         if ($config->get('fancy-compliance.inertia.share', true) && class_exists(Inertia::class)) {
-            $router->pushMiddlewareToGroup('web', ShareInertiaProps::class);
+            $this->appendToWebGroup($router);
             Inertia::share(
                 (string) $config->get('fancy-compliance.inertia.key', 'fancyCompliance'),
                 fn (): array => $this->app->make(ConsentManager::class)->props(),
@@ -68,5 +70,28 @@ final class ComplianceServiceProvider extends ServiceProvider
         $this->app->make('events')->listen(Login::class, function (Login $event): void {
             $this->app->make(ConsentManager::class)->linkGuestToUser($this->app->make('request'), $event->user);
         });
+    }
+
+    /**
+     * Adds ShareInertiaProps to `web` through the HTTP kernel when it owns the
+     * groups (Laravel 11+). The kernel's syncMiddlewareToRouter() rewrites the
+     * router's groups from its own, so a push onto the router alone is dropped
+     * the next time it syncs (Pest's in-process browser server does). The
+     * kernel skips a middleware the group already has, so a host that declares
+     * it too gets it once. Without such a kernel, the router is the only list.
+     */
+    private function appendToWebGroup(Router $router): void
+    {
+        if ($this->app->bound(HttpKernel::class)) {
+            $kernel = $this->app->make(HttpKernel::class);
+            if (method_exists($kernel, 'appendMiddlewareToGroup') && method_exists($kernel, 'getMiddlewareGroups')
+                && array_key_exists('web', $kernel->getMiddlewareGroups())) {
+                $kernel->appendMiddlewareToGroup('web', ShareInertiaProps::class);
+
+                return;
+            }
+        }
+
+        $router->pushMiddlewareToGroup('web', ShareInertiaProps::class);
     }
 }

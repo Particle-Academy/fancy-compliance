@@ -131,6 +131,15 @@ closed, but collects nothing.
     so a share made once at boot is gone from the second request. The middleware is what
     keeps the prop there. If your Inertia pages are served from a group other than `web`,
     add `ShareInertiaProps::class` to that group yourself.
+  - The package adds it through the HTTP kernel, so it survives the kernel re-syncing its
+    groups onto the router. To declare it yourself instead (Laravel 11+, `bootstrap/app.php`):
+
+    ```php
+    ->withMiddleware(fn ($m) => $m->web(append: [\FancyCompliance\Http\ShareInertiaProps::class]))
+    ```
+
+    Declaring it as well is harmless: the kernel keeps one entry, and a second run in the same
+    request only re-shares the same closure.
 - **Blade pages:** `@fancyComplianceProps` prints it as
   `<script type="application/json" id="fancy-compliance-props">`, with every `<`, `>`, `&`
   and quote escaped.

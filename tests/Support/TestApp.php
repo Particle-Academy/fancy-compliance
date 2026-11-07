@@ -7,6 +7,7 @@ namespace FancyCompliance\Tests\Support;
 use FancyCompliance\ComplianceServiceProvider;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Cookie\CookieServiceProvider;
 use Illuminate\Database\DatabaseServiceProvider;
 use Illuminate\Database\Schema\Blueprint;
@@ -14,12 +15,14 @@ use Illuminate\Encryption\EncryptionServiceProvider;
 use Illuminate\Events\EventServiceProvider;
 use Illuminate\Filesystem\FilesystemServiceProvider;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Routing\RoutingServiceProvider;
 use Illuminate\Session\SessionServiceProvider;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Translation\TranslationServiceProvider;
 use Illuminate\View\ViewServiceProvider;
+use Monolog\Handler\NullHandler;
 
 /**
  * A hand-built Laravel 13 kernel: the framework this package integrates with,
@@ -33,8 +36,12 @@ use Illuminate\View\ViewServiceProvider;
  */
 final class TestApp
 {
-    /** @param array<string, mixed> $config dotted keys merged over the defaults */
-    public static function boot(array $config = [], string $env = 'testing'): Application
+    /**
+     * @param  array<string, mixed>  $config  dotted keys merged over the defaults
+     * @param  array<string, list<string>>|null  $kernelGroups  when given, a real HTTP kernel
+     *                                                          owns the middleware groups, as in a Laravel 11+ app
+     */
+    public static function boot(array $config = [], string $env = 'testing', ?array $kernelGroups = null): Application
     {
         $base = sys_get_temp_dir().DIRECTORY_SEPARATOR.'fancy-compliance-tests';
         foreach (['/config', '/views', '/compiled', '/lang'] as $dir) {
@@ -55,7 +62,7 @@ final class TestApp
             'database' => ['default' => 'sqlite', 'connections' => ['sqlite' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true]]],
             'session' => ['driver' => 'array', 'lifetime' => 120, 'expire_on_close' => false, 'encrypt' => false, 'cookie' => 'test_session', 'path' => '/', 'domain' => null, 'secure' => false, 'http_only' => true, 'same_site' => 'lax', 'lottery' => [0, 100]],
             'view' => ['paths' => [$base.'/views'], 'compiled' => $base.'/compiled'],
-            'logging' => ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => \Monolog\Handler\NullHandler::class]]],
+            'logging' => ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => NullHandler::class]]],
         ]);
         foreach ($config as $key => $value) {
             $repository->set($key, $value);
@@ -68,6 +75,12 @@ final class TestApp
             $app->register($provider);
         }
         $app['router']->middlewareGroup('web', []);
+        if ($kernelGroups !== null) {
+            // Resolved before the providers boot, as public/index.php does; it
+            // syncs its own groups onto the router, replacing the router's.
+            $app->singleton(HttpKernelContract::class, HttpKernel::class);
+            $app->make(HttpKernelContract::class)->setMiddlewareGroups($kernelGroups);
+        }
         $app->register(ComplianceServiceProvider::class);
 
         self::migrate(dirname(__DIR__, 2).'/database/migrations');

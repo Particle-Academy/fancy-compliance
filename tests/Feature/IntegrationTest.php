@@ -5,6 +5,9 @@ declare(strict_types=1);
 use FancyCompliance\ConsentManager;
 use FancyCompliance\Contracts\ConsentGate;
 use FancyCompliance\Facades\Consent;
+use FancyCompliance\Http\ShareInertiaProps;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Blade;
 
@@ -82,6 +85,56 @@ it('shares the renamed Inertia prop per request, and nothing when sharing is off
     $app = complianceApp(['fancy-compliance.inertia.share' => false]);
     $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
     expect(http('GET', '/page')['body'])->toBe([]);
+});
+
+/** Re-syncs the kernel's groups onto the router, as Pest's in-process browser server does. */
+function resyncKernel(Application $app): Kernel
+{
+    $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
+    $kernel->setMiddlewareGroups($kernel->getMiddlewareGroups());
+
+    return $kernel;
+}
+
+it('keeps the per-request share when the kernel re-syncs its groups onto the router', function (): void {
+    // Laravel 11+: the HTTP kernel owns the groups. syncMiddlewareToRouter()
+    // rewrites the router's groups from the kernel's, dropping anything pushed
+    // onto the router alone.
+    $app = complianceApp(kernelGroups: ['web' => []]);
+    $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+    resyncKernel($app);
+
+    foreach (['first', 'second'] as $visit) {
+        Inertia\Inertia::flushShared();
+        resyncKernel($app);
+        expect(http('GET', '/page')['body'])->toContain('fancyCompliance');
+    }
+});
+
+it('does not add the middleware twice when the host already declares it in web', function (): void {
+    $app = complianceApp(kernelGroups: ['web' => [ShareInertiaProps::class]]);
+    $kernel = resyncKernel($app);
+
+    expect(array_count_values($kernel->getMiddlewareGroups()['web'])[ShareInertiaProps::class])->toBe(1);
+});
+
+it('shares once per request even when the middleware runs twice', function (): void {
+    // A host that declares it on a route as well as the provider's `web` entry.
+    $app = complianceApp(kernelGroups: ['web' => []]);
+    $app['router']->middleware(['web', ShareInertiaProps::class])->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+    Inertia\Inertia::flushShared();
+    Inertia\Inertia::$shareCalls = [];
+
+    expect(http('GET', '/page')['body'])->toBe(['fancyCompliance'])
+        ->and(Inertia\Inertia::$shareCalls['fancyCompliance'])->toBe(1);
+});
+
+it('falls back to the router when the kernel has no web group', function (): void {
+    $app = complianceApp(kernelGroups: ['api' => []]);
+    $app['router']->middleware('web')->get('/page', fn () => response()->json(array_keys(Inertia\Inertia::$shared)));
+    Inertia\Inertia::flushShared();
+
+    expect(http('GET', '/page')['body'])->toContain('fancyCompliance');
 });
 
 it('lets the host rename or turn off the Inertia prop', function (): void {
