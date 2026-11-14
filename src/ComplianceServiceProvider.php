@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace FancyCompliance;
 
 use FancyCompliance\Console\PruneCommand;
+use FancyCompliance\Console\RetentionCommand;
 use FancyCompliance\Contracts\ConsentGate;
+use FancyCompliance\DataRights\DataRightsManager;
 use FancyCompliance\Http\ConsentController;
+use FancyCompliance\Http\HistoryController;
 use FancyCompliance\Http\RequireConsent;
 use FancyCompliance\Http\ShareInertiaProps;
+use FancyCompliance\Retention\LedgerRetention;
+use FancyCompliance\Retention\RetentionRegistry;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Routing\Router;
@@ -23,6 +28,14 @@ final class ComplianceServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/fancy-compliance.php', 'fancy-compliance');
         $this->app->singleton(ConsentManager::class, fn ($app) => new ConsentManager($app));
         $this->app->alias(ConsentManager::class, ConsentGate::class);
+        $this->app->singleton(DataRightsManager::class, fn ($app) => new DataRightsManager($app->make(ConsentManager::class)));
+        // The ledger's own policy is registered first, so it always exists and runs first.
+        $this->app->singleton(RetentionRegistry::class, function ($app): RetentionRegistry {
+            $registry = new RetentionRegistry;
+            LedgerRetention::register($registry, $app);
+
+            return $registry;
+        });
     }
 
     public function boot(): void
@@ -33,7 +46,7 @@ final class ComplianceServiceProvider extends ServiceProvider
         $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/fancy-compliance')], 'fancy-compliance-lang');
         $this->publishesMigrations([__DIR__.'/../database/migrations' => $this->app->databasePath('migrations')], 'fancy-compliance-migrations');
 
-        $this->commands([PruneCommand::class]);
+        $this->commands([PruneCommand::class, RetentionCommand::class]);
 
         $config = $this->app->make('config');
         $router = $this->app->make('router');
@@ -43,10 +56,14 @@ final class ComplianceServiceProvider extends ServiceProvider
             $router->group([
                 'prefix' => (string) $config->get('fancy-compliance.routes.prefix', 'fancy-compliance'),
                 'middleware' => (array) $config->get('fancy-compliance.routes.middleware', ['web']),
-            ], function ($router): void {
+            ], function ($router) use ($config): void {
                 $router->get('consent', [ConsentController::class, 'show'])->name('fancy-compliance.show');
                 $router->post('consent', [ConsentController::class, 'record'])->name('fancy-compliance.record');
                 $router->post('consent/withdraw', [ConsentController::class, 'withdraw'])->name('fancy-compliance.withdraw');
+                if ($config->get('fancy-compliance.data_rights.history.enabled', true)) {
+                    // Answers 404 until the host registers a subject resolver: fail closed.
+                    $router->get('history', HistoryController::class)->name('fancy-compliance.history');
+                }
             });
         }
 

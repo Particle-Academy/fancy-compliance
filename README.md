@@ -7,8 +7,11 @@ server gate other packages check before they collect anything.
 The UI is [`@particle-academy/fancy-compliance-ui`](https://github.com/Particle-Academy/fancy-compliance-ui):
 a banner, a preferences dialog and script gating, built from react-fancy.
 
-**Scope of this release: consent only.** GDPR data export and erasure are
-planned and are not here yet.
+**Scope: consent, consent history and retention.** Data export and staged
+deletion are planned and are not here yet. These are mechanisms that can
+support your obligations, not a promise that you meet them: that depends on
+your jurisdiction, your data and your processes. Have it reviewed by a lawyer
+before relying on it.
 
 - PHP `^8.4`, Laravel 13.
 - No dependencies beyond the Laravel components it integrates with.
@@ -164,9 +167,93 @@ act, and a choice someone else made for them is not consent. The record routes a
 person's own browser or app. This package ships no agent tool that writes, and any bridge
 built on it must be read-only.
 
+## Consent history
+
+A person can see every decision they made: `GET /fancy-compliance/history` (route name
+`fancy-compliance.history`), or `Consent::history()` in PHP. The UI package's
+`ConsentHistory` renders it.
+
+**Nothing is served until you say who is asking.** Without a subject resolver the route
+answers `404 {"error":"data_rights_not_configured"}`. Register one in a service provider;
+nothing here assumes a `users` table, an `id` column or a Gate ability:
+
+```php
+use FancyCompliance\DataRights\DataSubject;
+use FancyCompliance\DataRights\SubjectKeys;
+use FancyCompliance\Facades\DataRights;
+
+// Who is asking. Return null when nobody is signed in.
+DataRights::subjects(fn (Request $r) => $r->user()
+    ? DataSubject::of('user', $r->user()->getAuthIdentifier())
+    : null);
+
+// Optional. Who may read whose history. The default allows only a subject acting
+// for itself, so support staff get access only when you write this.
+DataRights::authorize(fn (DataSubject $actor, DataSubject $target, string $right): bool =>
+    $actor->equals($target) || ($right === 'history' && Staff::canSupport($actor)));
+
+// Optional. Where a subject's data lives. The ledger reads the `user` key: the auth
+// identifier its rows were recorded under. Without this, a subject's keys are
+// [type => id], so a `user` subject reads its own rows.
+DataRights::resolveFor(fn (DataSubject $s) => SubjectKeys::of(['user' => Member::find($s->id)?->auth_id]));
+```
+
+- **Own history:** `GET /fancy-compliance/history`. The authoriser is asked even then, with
+  the right `history`.
+- **Someone else's:** `?subject_type=user&subject_id=42`, allowed only when your authoriser
+  says so; otherwise `403`.
+- **Guests** read the rows of their own consent cookie and cannot name anyone else
+  (`data_rights.history.guests`, on by default). No subject and no cookie is `401`.
+- **Paging:** `?limit=` (default `data_rights.history.limit`, 50, capped at `max_limit`, 100)
+  and `?before=<id>`. The response is `{"entries": [...], "nextBefore": 12}`; pass
+  `nextBefore` as `before` for the next, older page. It is `null` on the last page.
+- **Each entry:** `id`, `action`, `granted`, `refused`, `policyVersion`, `source`, `at`
+  (ISO 8601 UTC), and `linked` for a guest decision carried over at login. **The subject key
+  and the guest hash are never in the output.**
+- Malformed `limit`, `before` or subject input is a `422`. Responses are `Cache-Control:
+  no-store`. The route sits in `routes.middleware`: add your throttle there.
+
+## Retention
+
+One registry of retention policies and one command that runs them all:
+
+```php
+Schedule::command('fancy-compliance:retention')->daily();
+```
+
+- `--dry-run` counts and deletes nothing; `--only=<key>` (repeatable) runs some of them. An
+  unknown key fails and runs nothing.
+- A failing policy is reported, the others still run, and the command exits non-zero.
+- **The consent ledger is the policy `fancy-compliance.ledger`**, off while
+  `retention.days` is null (the default). `fancy-compliance:prune` still works: it runs that
+  one policy and nothing else, exactly as before.
+- `FancyCompliance\Events\RetentionPruned` (key, rows deleted per class) is dispatched after
+  each real run, never after a dry run.
+
+Register your own tables, in a service provider:
+
+```php
+use FancyCompliance\Facades\Retention;
+
+Retention::policy('app.login-attempts',
+    days: fn () => config('app.login_attempts_days'),   // read when it runs; null keeps everything
+    prune: fn (CarbonImmutable $before): int => LoginAttempt::where('created_at', '<', $before)->delete(),
+    count: fn (CarbonImmutable $before): int => LoginAttempt::where('created_at', '<', $before)->count(),
+);
+```
+
+Days must be a whole number, 1 or more, or null; anything else fails the run rather than
+keeping or deleting everything. A policy without `count` is skipped on a dry run, so a dry run
+can never delete. A package with several windows of its own implements
+`FancyCompliance\Retention\RetentionPolicy` and calls `Retention::register()`.
+
+**These are mechanisms, not legal advice.** They can support your obligations; whether you
+meet them depends on your jurisdiction, your data and your processes. Choosing a retention
+period is a legal decision. Have it reviewed by a lawyer before relying on it.
+
 ## What it does not do
 
-- GDPR export and erasure (planned).
+- Data export and staged deletion (planned: council change CC-fancy-0038, phases 3 and 4).
 - Block scripts by itself: the server gate covers what your server does; the UI package
   covers scripts loaded through it. Scripts you inject outside both are not blocked.
 - Rate limits, and geo rules (which jurisdictions see a banner): both are the host's.

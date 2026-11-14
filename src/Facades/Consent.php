@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Facade;
  * @method static string policyVersion()
  * @method static array props(?\Illuminate\Http\Request $request = null)
  * @method static string propsScript(?\Illuminate\Http\Request $request = null)
+ * @method static \FancyCompliance\ConsentHistoryPage history(?\Illuminate\Http\Request $request = null, ?int $limit = null, ?int $before = null)
+ * @method static \FancyCompliance\ConsentHistoryPage historyFor(\FancyCompliance\Subject $subject, ?int $limit = null, ?int $before = null)
  *
  * @see ConsentManager
  */

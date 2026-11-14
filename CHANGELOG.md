@@ -10,6 +10,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Council change **CC-fancy-0038**, phases 1 and 2 (consent history, retention), approved by
+the owner. These are mechanisms that can support a host's obligations; they promise no
+compliance with any law. Have it reviewed by a lawyer before relying on it.
+
+### Added
+
+- **Consent history.** `Consent::history($request = null, $limit = null, $before = null)`
+  returns a `ConsentHistoryPage` of `ConsentHistoryEntry` (id, action, granted, refused,
+  policy version, source, time, and `linked` for a login link), newest first, with a
+  `nextBefore` cursor. `Consent::historyFor(Subject $subject, ...)` reads any ledger subject.
+  The subject key and the guest hash are never in an entry.
+- **`GET {prefix}/history`** (`fancy-compliance.history`): the same, over HTTP, through the
+  host's resolvers. **It answers 404 until the host registers a subject resolver**, so
+  installing this release serves nothing new by itself. `401` with no subject and no guest
+  cookie, `403` when the authoriser refuses, `422` for malformed `limit`, `before`,
+  `subject_type` or `subject_id`; responses are `Cache-Control: no-store`.
+- **`DataRights` facade** (`DataRights\DataRightsManager`): `subjects()` (who is asking),
+  `authorize()` (actor, target, right; the default allows only actor equals target, so a
+  staff path exists only when the host writes one) and `resolveFor()` (a subject's
+  `SubjectKeys`). `DataSubject` is a host-named type and id, never assumed to be a `users`
+  row. Guests read their own cookie's rows (`data_rights.history.guests`).
+- Config `data_rights.history`: `enabled` (true), `guests` (true), `limit` (50),
+  `max_limit` (100).
+- **Retention registry.** `Retention::policy($key, days:, prune:, count:)` registers a
+  one-window policy; `Retention::register(RetentionPolicy)` takes a package's own
+  multi-window policy. `days` is read when the policy runs; anything other than a whole
+  number of days, 1 or more, or null fails that policy rather than keeping or deleting
+  everything.
+- **`fancy-compliance:retention`** runs every policy: `--dry-run` (calls `count`, never
+  `prune`; a policy without `count` is skipped), `--only=<key>`. A failing policy is reported,
+  the others still run, and the exit code is non-zero. An unknown `--only` key runs nothing.
+- `Events\RetentionPruned` (key, rows deleted per class), after every real run.
+
+### Changed
+
+- **The consent ledger's prune is now the registered policy `fancy-compliance.ledger`.**
+  `fancy-compliance:prune` stays as an alias that runs only that policy, and gains
+  `--dry-run`. **Consumer action:** none. A host that scheduled `fancy-compliance:prune`
+  keeps exactly the same behaviour; schedule `fancy-compliance:retention` instead once other
+  packages register policies.
+
 ## [0.1.2] - 2026-11-07
 
 ### Fixed

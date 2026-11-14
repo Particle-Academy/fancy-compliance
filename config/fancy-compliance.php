@@ -96,5 +96,30 @@ return [
         'days' => null,
     ],
 
+    /*
+    | Data rights. Nothing here is served until YOU say who is asking: register
+    | a subject resolver in a service provider, and optionally an authoriser
+    | and a key resolver (none of them assume a `users` table):
+    |
+    |   DataRights::subjects(fn (Request $r) => $r->user() ? DataSubject::of('user', $r->user()->getAuthIdentifier()) : null);
+    |   DataRights::authorize(fn (DataSubject $actor, DataSubject $target, string $right) => ...);
+    |
+    | The default authoriser allows only a subject acting for itself, so support
+    | staff can read a member's history only when your authoriser says so.
+    |
+    | `history`: GET {prefix}/history, the subject's consent ledger rows, newest
+    | first. `guests` lets a guest read the rows of its own cookie. `limit` is
+    | the default page size and `max_limit` caps what a request may ask for.
+    | The route sits in `routes.middleware`; add a throttle there.
+    */
+    'data_rights' => [
+        'history' => [
+            'enabled' => true,
+            'guests' => true,
+            'limit' => 50,
+            'max_limit' => 100,
+        ],
+    ],
+
     'table' => 'fancy_compliance_consents',
 ];

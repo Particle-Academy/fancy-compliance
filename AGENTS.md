@@ -18,7 +18,17 @@ append-only consent ledger, and a server gate. Its UI is
 - `Http\ConsentController`: `GET|POST {prefix}/consent`, `POST {prefix}/consent/withdraw`,
   named `fancy-compliance.show|record|withdraw`, in the host's `web` group.
 - `Http\RequireConsent`: middleware alias `consent:<category>[,drop]` (403, or 204 with `drop`).
-- `Console\PruneCommand`: `fancy-compliance:prune`, a no-op while `retention.days` is null.
+- `Console\PruneCommand`: `fancy-compliance:prune`, an alias that runs only the
+  `fancy-compliance.ledger` retention policy; a no-op while `retention.days` is null.
+- `ConsentManager::history` / `historyFor`: `ConsentHistoryPage` of `ConsentHistoryEntry`,
+  newest first, `nextBefore` cursor, capped at `data_rights.history.max_limit`.
+- `DataRights\DataRightsManager` (facade `DataRights`): the host's `subjects`, `authorize`,
+  `resolveFor`. `DataSubject` is `{type, id}` named by the host; `SubjectKeys::CONSENT_USER`
+  (`user`) is the key the ledger reads.
+- `Http\HistoryController`: `GET {prefix}/history`, `fancy-compliance.history`.
+- `Retention\RetentionRegistry` (facade `Retention`), `CutoffPolicy`, `RetentionPolicy`,
+  `RetentionOutcome`, `RetentionRunner`, `LedgerRetention` (registered first, in the
+  singleton). `Console\RetentionCommand`: `fancy-compliance:retention --dry-run --only=*`.
 - `ComplianceServiceProvider`: routes, middleware alias, `@consent` / `@fancyComplianceProps`,
   `Inertia::share('fancyCompliance', ...)` only when `Inertia\Inertia` exists, and the
   `Login` listener that links a guest's decision to the user.
@@ -43,6 +53,15 @@ append-only consent ledger, and a server gate. Its UI is
 - **A new `policy_version` makes every earlier decision non-current**: only required
   categories are allowed until the person decides again.
 - The `props()` shape is a cross-package contract with the UI: change it only additively.
+- **Data rights fail closed.** No subject resolver: the history route is a 404. The default
+  authoriser allows only actor equals target, and it is asked for the subject's own history
+  too. Nothing reads `users`, assumes `App\Models\User`, an `id` column or a Gate ability.
+- **History output never carries the subject key or a guest hash** (`linked` is a bool).
+- **A retention dry run never calls `prune`.** Invalid days fail the policy; they never mean
+  "keep everything" or "delete everything". One failing policy does not stop the rest, and
+  the command exits non-zero.
+- **The ledger entry `ConsentHistoryEntry::toArray()` shape** is a contract with the UI's
+  `ConsentHistoryEntry` type: change it only additively.
 
 ## Tests
 

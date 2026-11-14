@@ -57,7 +57,9 @@
                 "FancyCompliance\\ComplianceServiceProvider"
             ],
             "aliases": {
-                "Consent": "FancyCompliance\\Facades\\Consent"
+                "Consent": "FancyCompliance\\Facades\\Consent",
+                "DataRights": "FancyCompliance\\Facades\\DataRights",
+                "Retention": "FancyCompliance\\Facades\\Retention"
             }
         }
     },

@@ -147,6 +147,49 @@ final class ConsentManager implements ConsentGate
         return true;
     }
 
+    /**
+     * This request's own consent history: the signed-in user's rows, or the
+     * guest cookie's. Empty for a guest who never decided. Newest first.
+     */
+    public function history(?Request $request = null, ?int $limit = null, ?int $before = null): ConsentHistoryPage
+    {
+        $subject = $this->subject($this->request($request));
+
+        return $subject === null ? new ConsentHistoryPage([], null) : $this->historyFor($subject, $limit, $before);
+    }
+
+    /**
+     * A ledger subject's rows, newest first, `$limit` at a time (capped at
+     * `data_rights.history.max_limit`), older than id `$before` when given.
+     * Reads only; who may read whose history is decided before this is called.
+     */
+    public function historyFor(Subject $subject, ?int $limit = null, ?int $before = null): ConsentHistoryPage
+    {
+        $max = max(1, (int) $this->config('data_rights.history.max_limit', 100));
+        $limit = min($max, max(1, $limit ?? (int) $this->config('data_rights.history.limit', 50)));
+
+        $rows = ConsentRecord::query()
+            ->where('subject_type', $subject->type)
+            ->where('subject_id', $subject->id)
+            ->when($before !== null, fn ($query) => $query->where('id', '<', $before))
+            ->orderByDesc('id')
+            ->limit($limit + 1)
+            ->get()
+            ->all();
+        $more = count($rows) > $limit;
+        $entries = array_map(static fn (ConsentRecord $row): ConsentHistoryEntry => ConsentHistoryEntry::fromRecord($row), array_slice($rows, 0, $limit));
+
+        return new ConsentHistoryPage($entries, $more ? $entries[$limit - 1]->id : null);
+    }
+
+    /** The guest subject of this request's cookie, or null. Never a new guest. */
+    public function guestSubject(Request $request): ?Subject
+    {
+        $token = $this->guestToken($request);
+
+        return $token === null ? null : Subject::guest($token);
+    }
+
     /** Who this request's consent belongs to, or null for a guest who has never decided. */
     public function subject(Request $request): ?Subject
     {
