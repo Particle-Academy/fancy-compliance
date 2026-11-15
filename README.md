@@ -7,11 +7,10 @@ server gate other packages check before they collect anything.
 The UI is [`@particle-academy/fancy-compliance-ui`](https://github.com/Particle-Academy/fancy-compliance-ui):
 a banner, a preferences dialog and script gating, built from react-fancy.
 
-**Scope: consent, consent history and retention.** Data export and staged
-deletion are planned and are not here yet. These are mechanisms that can
-support your obligations, not a promise that you meet them: that depends on
-your jurisdiction, your data and your processes. Have it reviewed by a lawyer
-before relying on it.
+**Scope: consent, consent history, retention, self-service data export and
+staged deletion.** These are mechanisms that can support your obligations, not
+a promise that you meet them: that depends on your jurisdiction, your data and
+your processes. Have it reviewed by a lawyer before relying on it.
 
 - PHP `^8.4`, Laravel 13.
 - No dependencies beyond the Laravel components it integrates with.
@@ -251,9 +250,122 @@ can never delete. A package with several windows of its own implements
 meet them depends on your jurisdiction, your data and your processes. Choosing a retention
 period is a legal decision. Have it reviewed by a lawyer before relying on it.
 
+## Data rights: export and staged deletion
+
+A signed-in person can download their data and ask for it to be erased. The HTTP contract
+is [`docs/data-rights-protocol.md`](docs/data-rights-protocol.md), and the UI package's
+`DataExportPanel` and `AccountDeletionPanel` render it. Like history, **nothing is served
+until you register a subject resolver** (see [Consent history](#consent-history)); the same
+authoriser is asked, with the right `export` or `erase`.
+
+### Where the data is: registrants
+
+Each package that holds personal data registers a `DataRegistrant`: what to export, and how
+to erase it. This package registers two of its own, first: `fancy-compliance.consents` (the
+ledger) and `fancy-compliance.exports` (export records). Register your own tables the same
+way, in a service provider:
+
+```php
+use FancyCompliance\DataRights\{DataRegistrant, ErasurePlan, ExportWriter, SubjectKeys};
+use FancyCompliance\Facades\DataRights;
+
+DataRights::register(new class implements DataRegistrant {
+    public function key(): string { return 'app.orders'; }
+    public function version(): string { return '1'; }
+    public function export(SubjectKeys $k, ExportWriter $w): void {
+        $w->json('orders', Order::where('customer_id', $k->get('user'))->get()->toArray());
+        $w->file('invoice-17.pdf', Storage::get('invoices/17.pdf'));   // ZIP only
+    }
+    public function erase(SubjectKeys $k, ErasurePlan $p): void {
+        $p->delete('carts', Cart::where('customer_id', $k->get('user'))->delete());
+        $p->anonymise('reviews', Review::where('customer_id', $k->get('user'))->update(['customer_id' => null]));
+        $p->retain('orders', Order::where('customer_id', $k->get('user'))->count(), 'Kept for tax records.');
+    }
+    public function holds(SubjectKeys $k): int { return Order::where('customer_id', $k->get('user'))->count(); }
+});
+```
+
+- Read identifiers from `SubjectKeys` (your `DataRights::resolveFor`); never derive one from
+  another. Never export secrets (key material, token or OTP hashes) or other people's data.
+- `erase()` runs in a transaction on the default connection and must be idempotent. Say what
+  you did on the plan; a `retain()` needs a reason, which the person sees. Pass
+  `rekeyed: true` when the rows stay but the person was replaced by `$p->pseudonym()`.
+- A hash-chained log cannot be rewritten without breaking its verification: `retain()` it,
+  unchanged, with that reason.
+- A package registers only when this one is installed:
+  `if (class_exists(DataRegistrant::class)) { ... }`.
+
+### Export
+
+- `POST /fancy-compliance/exports` with `{"format": "json"}` or `"zip"` (ZIP only with
+  `ext-zip`). The response is the export's status, including a `download.url` once it is ready.
+- **A download needs the signed-in person AND the single-use token in that URL.** Each read
+  of the export issues a fresh token. There is no link that works without signing in, so
+  when you tell someone their export is ready (`Events\ExportReady`), tell them to sign in.
+- Files are encrypted with your app key on `data_rights.exports.disk` (default `local`; keep
+  it private) and deleted after `ttl_hours` (24), or after the first download with
+  `delete_after_download`. The `fancy-compliance.exports` retention policy deletes expired
+  files and records older than `record_days` (30).
+- Limits, all settings: one pending export per person, `per_day` (3), `max_bytes` (50 MB),
+  `max_files` (1000). A registrant that throws, or an export past a cap, fails the export
+  with an `error` code; nothing half-built is kept.
+- Set `exports.queue.enabled` to build on your queue (`Jobs\BuildExport`, which carries
+  only the export id).
+- Events: `ExportRequested`, `ExportReady`, `ExportFailed`, `ExportDownloaded`.
+
+### Staged deletion
+
+- `POST /fancy-compliance/erasure` records a request that waits out `erasure.grace_days`
+  (30; **0 runs it at once**). `POST /fancy-compliance/erasure/{id}/cancel` cancels it until
+  then, touching no data.
+- **Set `FANCY_COMPLIANCE_ERASURE_KEY`** (32 bytes or more, `base64:` accepted). The
+  person is named in the erasure tables only by an HMAC of them with this key. Without it,
+  erasure answers `503` and records nothing. Keep it stable.
+- Schedule the executor: `Schedule::command('fancy-compliance:erasure-due')->hourly();`
+  Each registrant runs in its own transaction. If one fails, the request is
+  `partially_executed`, the failure is in the audit trail, the command exits non-zero, and
+  `--retry` runs only the ones that failed. `--dry-run` lists what is due and what each
+  registrant holds.
+- **The consent ledger** (`erasure.consents`): by default its rows are kept as evidence of
+  consent, re-keyed to the pseudonym (`subject_type` `erased`), along with the guest rows a
+  login linked; `delete` removes them instead. Choosing is a legal decision.
+- `fancy_compliance_erasures` is the audit trail: append-only, one row per step (requested,
+  cancelled, executing, each registrant with its version and counts or its failure,
+  executed), naming the person only by pseudonym. `fancy_compliance_erasure_requests` holds
+  each request's state; the subject is stored encrypted there only while the request can
+  still run.
+- Your hooks: `DataRights::blockErasure(fn (DataSubject $s) => Dispute::openFor($s->id)
+  ? 'Your account has an open dispute.' : null)` refuses with a reason the member sees;
+  `DataRights::onErasureRequested(fn (DataSubject $s, string $id) => ...)` is where you lock
+  the account during the grace period, if you want to (the package does not assume it).
+- Limits: one pending request per person, `erasure.per_day` (3).
+- Events: `ErasureRequested`, `ErasureCancelled`, `ErasureExecuted`.
+
+### Re-authentication
+
+Requesting an export or an erasure needs a recent re-authentication. **On by default**
+(`data_rights.reauth.required`); turning it off is your call. Without your own check it reads
+`auth.password_confirmed_at` from the session, which Laravel's `password.confirm` middleware
+writes, against `reauth.window_minutes` (10). Supply your own, a passkey step-up for
+example, with `DataRights::confirmRecent(fn (Request $r): bool => ...)`. Without one the
+routes answer `423 {"error":"reauth_required"}`; reading status, downloading and cancelling
+do not ask.
+
+### Agents
+
+An agent may read export and erasure status. **An agent must never request an erasure or
+download an export for a person**: the UI fences those controls, and nothing here offers an
+agent tool that does either.
+
+**These are mechanisms, not legal advice.** Whether an export is complete, how long a grace
+period should be, and what must be kept are legal questions that depend on your
+jurisdiction, your data and your processes. Have it reviewed by a lawyer before relying on it.
+
 ## What it does not do
 
-- Data export and staged deletion (planned: council change CC-fancy-0038, phases 3 and 4).
+- Exporters and anonymisers for other packages' data: each package ships its own, in its
+  own release. Until it does, register one for its tables yourself.
+- An export or erasure for a guest: both need a signed-in subject.
 - Block scripts by itself: the server gate covers what your server does; the UI package
   covers scripts loaded through it. Scripts you inject outside both are not blocked.
 - Rate limits, and geo rules (which jurisdictions see a banner): both are the host's.

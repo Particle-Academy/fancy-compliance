@@ -19,7 +19,7 @@ final readonly class SubjectKeys
     public const CONSENT_USER = 'user';
 
     /** @param array<string, mixed> $keys */
-    private function __construct(private array $keys) {}
+    private function __construct(private array $keys, private ?DataSubject $subject = null) {}
 
     /** @param array<string, mixed> $keys null values are dropped */
     public static function of(array $keys): self
@@ -46,5 +46,21 @@ final readonly class SubjectKeys
     public function all(): array
     {
         return $this->keys;
+    }
+
+    /**
+     * The subject these keys were resolved for, when they came from
+     * `DataRights::keysFor()`. For a package's own records keyed by the subject
+     * itself; a registrant reading the host's tables uses the named keys.
+     */
+    public function subject(): ?DataSubject
+    {
+        return $this->subject;
+    }
+
+    /** A copy carrying the subject it was resolved for. */
+    public function forSubject(DataSubject $subject): self
+    {
+        return new self($this->keys, $subject);
     }
 }

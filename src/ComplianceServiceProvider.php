@@ -4,14 +4,22 @@ declare(strict_types=1);
 
 namespace FancyCompliance;
 
+use FancyCompliance\Console\ErasureDueCommand;
 use FancyCompliance\Console\PruneCommand;
 use FancyCompliance\Console\RetentionCommand;
 use FancyCompliance\Contracts\ConsentGate;
 use FancyCompliance\DataRights\DataRightsManager;
+use FancyCompliance\DataRights\ErasureService;
+use FancyCompliance\DataRights\ExportService;
+use FancyCompliance\DataRights\Registrants\ConsentLedgerRegistrant;
+use FancyCompliance\DataRights\Registrants\ExportRecordsRegistrant;
 use FancyCompliance\Http\ConsentController;
+use FancyCompliance\Http\ErasureController;
+use FancyCompliance\Http\ExportController;
 use FancyCompliance\Http\HistoryController;
 use FancyCompliance\Http\RequireConsent;
 use FancyCompliance\Http\ShareInertiaProps;
+use FancyCompliance\Retention\ExportRetention;
 use FancyCompliance\Retention\LedgerRetention;
 use FancyCompliance\Retention\RetentionRegistry;
 use Illuminate\Auth\Events\Login;
@@ -28,11 +36,21 @@ final class ComplianceServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/fancy-compliance.php', 'fancy-compliance');
         $this->app->singleton(ConsentManager::class, fn ($app) => new ConsentManager($app));
         $this->app->alias(ConsentManager::class, ConsentGate::class);
-        $this->app->singleton(DataRightsManager::class, fn ($app) => new DataRightsManager($app->make(ConsentManager::class)));
+        // This package's own registrants go first, so they always exist and run first.
+        $this->app->singleton(DataRightsManager::class, function ($app): DataRightsManager {
+            $rights = new DataRightsManager($app->make(ConsentManager::class), $app);
+            $rights->registerFirstParty(new ConsentLedgerRegistrant($app));
+            $rights->registerFirstParty(new ExportRecordsRegistrant($app));
+
+            return $rights;
+        });
+        $this->app->singleton(ExportService::class);
+        $this->app->singleton(ErasureService::class);
         // The ledger's own policy is registered first, so it always exists and runs first.
         $this->app->singleton(RetentionRegistry::class, function ($app): RetentionRegistry {
             $registry = new RetentionRegistry;
             LedgerRetention::register($registry, $app);
+            $registry->register(new ExportRetention($app));
 
             return $registry;
         });
@@ -46,7 +64,7 @@ final class ComplianceServiceProvider extends ServiceProvider
         $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/fancy-compliance')], 'fancy-compliance-lang');
         $this->publishesMigrations([__DIR__.'/../database/migrations' => $this->app->databasePath('migrations')], 'fancy-compliance-migrations');
 
-        $this->commands([PruneCommand::class, RetentionCommand::class]);
+        $this->commands([PruneCommand::class, RetentionCommand::class, ErasureDueCommand::class]);
 
         $config = $this->app->make('config');
         $router = $this->app->make('router');
@@ -63,6 +81,19 @@ final class ComplianceServiceProvider extends ServiceProvider
                 if ($config->get('fancy-compliance.data_rights.history.enabled', true)) {
                     // Answers 404 until the host registers a subject resolver: fail closed.
                     $router->get('history', HistoryController::class)->name('fancy-compliance.history');
+                }
+                // Like history, both answer 404 until the host registers a subject resolver.
+                if ($config->get('fancy-compliance.data_rights.exports.enabled', true) !== false) {
+                    $router->get('exports', [ExportController::class, 'index'])->name('fancy-compliance.exports.index');
+                    $router->post('exports', [ExportController::class, 'store'])->name('fancy-compliance.exports.store');
+                    $router->get('exports/{export}', [ExportController::class, 'show'])->name('fancy-compliance.exports.show');
+                    $router->get('exports/{export}/download', [ExportController::class, 'download'])->name('fancy-compliance.exports.download');
+                }
+                if ($config->get('fancy-compliance.data_rights.erasure.enabled', true) !== false) {
+                    $router->get('erasure', [ErasureController::class, 'show'])->name('fancy-compliance.erasure.show');
+                    $router->post('erasure', [ErasureController::class, 'store'])->name('fancy-compliance.erasure.store');
+                    $router->get('erasure/{erasure}', [ErasureController::class, 'view'])->name('fancy-compliance.erasure.view');
+                    $router->post('erasure/{erasure}/cancel', [ErasureController::class, 'cancel'])->name('fancy-compliance.erasure.cancel');
                 }
             });
         }

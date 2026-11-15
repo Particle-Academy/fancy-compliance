@@ -29,6 +29,22 @@ append-only consent ledger, and a server gate. Its UI is
 - `Retention\RetentionRegistry` (facade `Retention`), `CutoffPolicy`, `RetentionPolicy`,
   `RetentionOutcome`, `RetentionRunner`, `LedgerRetention` (registered first, in the
   singleton). `Console\RetentionCommand`: `fancy-compliance:retention --dry-run --only=*`.
+- Data rights, phases 3 and 4 (contract: `docs/data-rights-protocol.md`):
+  - `DataRights\DataRegistrant` (key, version, export, erase, holds); `DataRightsManager`
+    holds the registry (`register`; `registerFirstParty` for this package's own, which own the
+    `fancy-compliance.` prefix), `confirmRecent`, `blockErasure`, `onErasureRequested`,
+    `holdings`. `SubjectKeys::subject()` is the subject the keys were resolved for.
+  - `Registrants\ConsentLedgerRegistrant` (`fancy-compliance.consents`) and
+    `ExportRecordsRegistrant` (`fancy-compliance.exports`), registered in the singleton, first.
+  - `ExportService` + `ExportBundle` / `ExportWriter` / `ExportLimitExceeded`; `Jobs\BuildExport`.
+    `Http\ExportController`: `{prefix}/exports[/{id}[/download]]`.
+  - `ErasureService` + `ErasurePlan`; `Http\ErasureController`: `{prefix}/erasure[/{id}[/cancel]]`;
+    `Console\ErasureDueCommand` (`fancy-compliance:erasure-due --dry-run --retry`).
+  - `Http\DataRightsResponses`: the shared order (404 not configured, 401, 422, 403, 423) and
+    error bodies. `DataRightsConfig` reads every setting with defaults; a present but invalid
+    value throws (500), never "no limit". `Pseudonyms`: erasure HMAC, export subject hash, ids.
+  - Models `DataExport`, `ErasureRequest` (mutable state), `ErasureRecord` (the append-only
+    audit trail, `fancy_compliance_erasures`). `Retention\ExportRetention`.
 - `ComplianceServiceProvider`: routes, middleware alias, `@consent` / `@fancyComplianceProps`,
   `Inertia::share('fancyCompliance', ...)` only when `Inertia\Inertia` exists, and the
   `Login` listener that links a guest's decision to the user.
@@ -41,8 +57,9 @@ append-only consent ledger, and a server gate. Its UI is
 ## Invariants a change must keep
 
 - **Append-only.** Every decision, withdrawal and login link is a new row. The current state
-  is the latest row per subject by id. Nothing updates a row; only `prune` deletes, never a
-  subject's latest row.
+  is the latest row per subject by id. Two sanctioned writes only, both through the query
+  builder: `prune` deletes (never a subject's latest row), and an executed erasure re-keys
+  (or, when the host chose `delete`, deletes) that subject's rows.
 - **`necessary` can never be refused**, not by config, input or withdrawal.
 - **No IP address, no user agent, no fingerprint** in the ledger, raw or hashed. A test scans
   every column value for both.
@@ -62,6 +79,24 @@ append-only consent ledger, and a server gate. Its UI is
   the command exits non-zero.
 - **The ledger entry `ConsentHistoryEntry::toArray()` shape** is a contract with the UI's
   `ConsentHistoryEntry` type: change it only additively.
+- **No unauthenticated path to an export or an erasure.** A download needs the authenticated
+  subject AND a single-use token (stored as SHA-256); every read of a ready export issues a
+  fresh one and a download spends it. Never add a signed-URL-only or emailed link.
+- **Re-authentication before requesting an export or an erasure is on by default** and is
+  checked after the authoriser. Status, download and cancel never ask for it.
+- **No raw subject at rest in the data-rights tables.** Exports store a keyed hash and hold
+  the subject encrypted only until built; erasure requests hold it encrypted only while they
+  can still run (cleared on executed and cancelled); the audit trail only ever has the
+  erasure pseudonym. Error details stay in the audit trail, never in a view.
+- **Erasure without `FANCY_COMPLIANCE_ERASURE_KEY` (32+ bytes) records nothing (503).**
+- **Each registrant erases in its own transaction**; a failure leaves the request
+  `partially_executed`, and a resume skips registrants already `done`. Executed and
+  cancelled requests never run again. Cancelling touches no data.
+- **The consent ledger is re-keyed or deleted only by `ConsentLedgerRegistrant`, through the
+  query builder.** The model guard stays; erasure and retention are the only sanctioned writes.
+- **Limits are counted from the tables** (pending, per day), so they hold across cache flushes.
+- Export and erasure view shapes are a contract with the UI's types: change them only
+  additively, and change `docs/data-rights-protocol.md` in the same commit.
 
 ## Tests
 

@@ -61,10 +61,10 @@ function fakeStore(array &$items, array &$calls): array
     ];
 }
 
-it('registers the consent ledger as the policy fancy-compliance.ledger', function (): void {
+it('registers the consent ledger as the policy fancy-compliance.ledger, then the export records', function (): void {
     complianceApp();
 
-    expect(Retention::keys())->toBe(['fancy-compliance.ledger']);
+    expect(Retention::keys())->toBe(['fancy-compliance.ledger', 'fancy-compliance.exports']);
 });
 
 it('leaves the ledger alone while its retention is null, which is the default', function (): void {
@@ -283,5 +283,8 @@ it('dispatches RetentionPruned after a real run, never after a dry run', functio
     expect($events)->toBe([]);
 
     runRetention();
-    expect($events)->toBe([['fancy-compliance.ledger', ['consents' => 1]]]);
+    expect($events)->toBe([
+        ['fancy-compliance.ledger', ['consents' => 1]],
+        ['fancy-compliance.exports', ['files' => 0, 'records' => 0]],
+    ]);
 });

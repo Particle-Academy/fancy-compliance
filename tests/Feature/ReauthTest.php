@@ -89,12 +89,14 @@ it('uses the host\'s own check when it supplies one', function (): void {
 it('does not ask for it to read status, download, or cancel', function (): void {
     rightsApp();
     $ada = makeUser();
-    $export = http('POST', '/fancy-compliance/exports', [], [], $ada)['body']['export'];
+    http('POST', '/fancy-compliance/exports', [], [], $ada);
     $erasure = http('POST', '/fancy-compliance/erasure', [], [], $ada)['body']['erasure'];
     config(['fancy-compliance.data_rights.reauth.required' => true]);
 
-    expect(http('GET', '/fancy-compliance/exports', null, [], $ada)['status'])->toBe(200)
-        ->and(rawHttp('GET', $export['download']['url'], $ada)['status'])->toBe(200)
+    $list = http('GET', '/fancy-compliance/exports', null, [], $ada);
+    // Reading the list issued a fresh token; the one from the POST is spent.
+    expect($list['status'])->toBe(200)
+        ->and(rawHttp('GET', $list['body']['exports'][0]['download']['url'], $ada)['status'])->toBe(200)
         ->and(http('POST', '/fancy-compliance/erasure/'.$erasure['id'].'/cancel', [], [], $ada)['status'])->toBe(200);
 });
 

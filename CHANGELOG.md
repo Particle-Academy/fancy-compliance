@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Council change **CC-fancy-0038**, phases 1 and 2 (consent history, retention), approved by
+Council change **CC-fancy-0038**, phases 1 to 4 (consent history, retention, export, staged deletion), approved by
 the owner. These are mechanisms that can support a host's obligations; they promise no
 compliance with any law. Have it reviewed by a lawyer before relying on it.
 
@@ -43,8 +43,44 @@ compliance with any law. Have it reviewed by a lawyer before relying on it.
   the others still run, and the exit code is non-zero. An unknown `--only` key runs nothing.
 - `Events\RetentionPruned` (key, rows deleted per class), after every real run.
 
+- **Self-service export** (phase 3). `GET|POST {prefix}/exports`, `GET {prefix}/exports/{id}`
+  and `GET {prefix}/exports/{id}/download?token=`, contract in `docs/data-rights-protocol.md`.
+  JSON always; ZIP (manifest with SHA-256 per file, attached files) when `ext-zip` is
+  loaded. A download needs the authenticated subject AND a single-use token; there is no
+  unauthenticated link. Files are encrypted with the app key and deleted after
+  `exports.ttl_hours` (24). One pending export per subject, `exports.per_day` (3),
+  `max_bytes`, `max_files`; optional queue (`Jobs\BuildExport`). Events `ExportRequested`,
+  `ExportReady`, `ExportFailed`, `ExportDownloaded`.
+- **Staged deletion** (phase 4). `GET|POST {prefix}/erasure`, `GET {prefix}/erasure/{id}`,
+  `POST {prefix}/erasure/{id}/cancel`. A grace period (`erasure.grace_days`, 30, 0 allowed),
+  cancel until then, then each registrant deletes, anonymises or retains with a reason, each
+  in its own transaction; a failure leaves the request `partially_executed`, resumable with
+  `fancy-compliance:erasure-due --retry`. Schedule `fancy-compliance:erasure-due`. Hooks
+  `DataRights::blockErasure()` and `onErasureRequested()`; events `ErasureRequested`,
+  `ErasureCancelled`, `ErasureExecuted`.
+- **`fancy_compliance_erasures`**, an append-only audit trail naming the subject only by an
+  HMAC pseudonym keyed with **`FANCY_COMPLIANCE_ERASURE_KEY`** (32 bytes or more). Without
+  the key, erasure answers 503 and records nothing. Request state is in
+  `fancy_compliance_erasure_requests`, export requests in `fancy_compliance_exports`.
+- **Registrants.** `DataRights::register(DataRegistrant)`: each package's (and the host's)
+  exporter and anonymiser. This package registers `fancy-compliance.consents` and
+  `fancy-compliance.exports` first. On erasure the consent ledger is, by default, kept as
+  evidence and re-keyed to the pseudonym, along with the guest rows a login linked
+  (`erasure.consents` = `pseudonymise`); `delete` removes it instead.
+- **Re-authentication before requesting an export or an erasure, on by default**
+  (`data_rights.reauth.required`, `window_minutes` 10). The default reads Laravel's
+  `password.confirm` timestamp; `DataRights::confirmRecent()` takes the host's own check.
+- `DataRights::holdings()`, `export()`, `requestErasure()`, `cancelErasure()`,
+  `executeErasure()` for PHP callers. `SubjectKeys::subject()`.
+- Retention policy `fancy-compliance.exports` (expired files; records older than
+  `exports.record_days`, 30).
+- `ext-zip` in `suggest`.
+
 ### Changed
 
+- **`fancy-compliance:retention` also runs `fancy-compliance.exports`.** **Consumer action:**
+  run the new migration (`php artisan migrate`). Nothing else: the policy only touches the
+  new exports table.
 - **The consent ledger's prune is now the registered policy `fancy-compliance.ledger`.**
   `fancy-compliance:prune` stays as an alias that runs only that policy, and gains
   `--dry-run`. **Consumer action:** none. A host that scheduled `fancy-compliance:prune`

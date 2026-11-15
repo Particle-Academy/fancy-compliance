@@ -89,11 +89,14 @@ it('never puts a guest hash, a subject key or a token in an export', function ()
     consent()->linkGuestToUser(app('request'), $ada);
 
     $view = postExport($ada)['body']['export'];
+    $tokenHash = (string) DB::table('fancy_compliance_exports')->value('download_token_hash');
     $file = rawHttp('GET', downloadPath($view), $ada)['content'];
 
-    expect($file)->not->toContain(hash('sha256', $token))
+    expect($tokenHash)->toMatch('/^[0-9a-f]{64}$/')
+        ->and($file)->not->toContain(hash('sha256', $token))
         ->and($file)->not->toContain($token)
-        ->and($file)->not->toContain((string) DB::table('fancy_compliance_exports')->value('download_token_hash'));
+        ->and($file)->not->toContain($tokenHash)
+        ->and($file)->not->toContain(parse_url($view['download']['url'], PHP_URL_QUERY));
 });
 
 it('stores the export encrypted at rest, on the host\'s disk', function (): void {
@@ -472,4 +475,19 @@ it('prunes expired export files and old export records through the retention reg
     expect($outcome->counts)->toBe(['files' => 1, 'records' => 1])
         ->and(DB::table('fancy_compliance_exports')->pluck('id')->all())->toBe([$fresh['id']])
         ->and(diskFiles())->toBe([]);
+});
+
+it('stops at the size cap as it is crossed, before later registrants run', function (): void {
+    rightsApp(['fancy-compliance.data_rights.exports.max_bytes' => 2000]);
+    $ada = makeUser();
+    $later = 0;
+    DataRights::register(registrant('app.big', export: fn (SubjectKeys $k, ExportWriter $w) => $w->json('blob', str_repeat('x', 4000))));
+    DataRights::register(registrant('app.later', export: function () use (&$later): void {
+        $later++;
+    }));
+
+    $view = postExport($ada)['body']['export'];
+
+    expect($view['error'])->toBe('too_large')
+        ->and($later)->toBe(0);
 });

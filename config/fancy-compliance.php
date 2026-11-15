@@ -119,6 +119,69 @@ return [
             'limit' => 50,
             'max_limit' => 100,
         ],
+
+        /*
+        | Requesting an export or an erasure needs a recent re-authentication.
+        | ON by default. Without your own check (DataRights::confirmRecent), it
+        | reads the session's `auth.password_confirmed_at`, which Laravel's
+        | `password.confirm` middleware writes. Turning it off is your call.
+        */
+        'reauth' => [
+            'required' => true,
+            'window_minutes' => 10,
+        ],
+
+        /*
+        | Self-service export (GET|POST {prefix}/exports). JSON always; ZIP
+        | only when ext-zip is loaded. Files are encrypted with the app key on
+        | `disk` (keep it private) and deleted after `ttl_hours`. A download
+        | needs the signed-in subject AND a single-use token: there is no link
+        | that works on its own, so never mail one. `per_day` counts requests
+        | per subject over 24 hours; one export may be pending at a time.
+        | `record_days` keeps the request records (no data in them) for the
+        | `fancy-compliance.exports` retention policy; null keeps them.
+        | `queue.enabled` builds on your queue instead of in the request.
+        */
+        'exports' => [
+            'enabled' => true,
+            'formats' => ['json', 'zip'],
+            'disk' => 'local',
+            'directory' => 'fancy-compliance/exports',
+            'ttl_hours' => 24,
+            'delete_after_download' => false,
+            'per_day' => 3,
+            'max_bytes' => 52428800,
+            'max_files' => 1000,
+            'record_days' => 30,
+            'queue' => [
+                'enabled' => false,
+                'connection' => null,
+                'name' => null,
+            ],
+        ],
+
+        /*
+        | Staged deletion (GET|POST {prefix}/erasure). A request waits
+        | `grace_days` (0 runs it at once) and can be cancelled until then;
+        | schedule `fancy-compliance:erasure-due` to execute the due ones.
+        |
+        | `key` is REQUIRED: the erasure pseudonym is an HMAC of the subject
+        | with it, so the audit trail and re-keyed rows never name the person.
+        | At least 32 bytes (`base64:` accepted). Keep it stable: a new key
+        | cannot match anything recorded under the old one. Without it,
+        | erasure answers 503 and records nothing.
+        |
+        | `consents`: what happens to the consent ledger. `pseudonymise` keeps
+        | the rows as evidence of consent with the person replaced by the
+        | pseudonym; `delete` removes them. Choosing is a legal decision.
+        */
+        'erasure' => [
+            'enabled' => true,
+            'grace_days' => 30,
+            'per_day' => 3,
+            'key' => env('FANCY_COMPLIANCE_ERASURE_KEY'),
+            'consents' => 'pseudonymise',
+        ],
     ],
 
     'table' => 'fancy_compliance_consents',

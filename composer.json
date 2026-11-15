@@ -33,6 +33,7 @@
         "pestphp/pest": "^5.0"
     },
     "suggest": {
+        "ext-zip": "Lets a person download their data export as a ZIP with a manifest and attached files. Without it, exports are JSON only.",
         "inertiajs/inertia-laravel": "Shares the current consent and the categories as an Inertia prop, so the UI renders without a fetch.",
         "particle-academy/fancy-heuristics": "Can gate its collection on Consent::allows() once it adopts the ConsentGate contract."
     },
