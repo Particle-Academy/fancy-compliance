@@ -113,3 +113,103 @@ function makeUser(string $name = 'Ada'): User
 {
     return User::query()->create(['name' => $name]);
 }
+
+/**
+ * A kernel with data rights wired the way most hosts will: the signed-in user
+ * is the subject. Re-authentication is off unless a test turns it back on,
+ * because these tests are about what follows it; ReauthTest covers the gate.
+ */
+function rightsApp(array $config = []): Application
+{
+    $app = complianceApp(['fancy-compliance.data_rights.reauth.required' => false, ...$config]);
+    FancyCompliance\Facades\DataRights::subjects(fn (Request $r): ?FancyCompliance\DataRights\DataSubject => $r->user() === null
+        ? null
+        : FancyCompliance\DataRights\DataSubject::of('user', $r->user()->getAuthIdentifier()));
+
+    return $app;
+}
+
+/** Ledger rows for $user: a decision, then a withdrawal. */
+function seedConsents(User $user): void
+{
+    makeRequest('POST', '/', [], $user);
+    consent()->record(['analytics'], 'banner');
+    makeRequest('POST', '/', [], $user);
+    consent()->withdraw(['analytics'], 'preferences');
+}
+
+/** @return array{status: int, headers: Symfony\Component\HttpFoundation\ResponseHeaderBag, content: string} */
+function rawHttp(string $method, string $uri, ?User $user = null): array
+{
+    $request = makeRequest($method, $uri, [], $user);
+    $response = app('router')->dispatch($request);
+    $content = $response instanceof Symfony\Component\HttpFoundation\StreamedResponse ? (function () use ($response): string {
+        ob_start();
+        $response->sendContent();
+
+        return (string) ob_get_clean();
+    })() : (string) $response->getContent();
+
+    return ['status' => $response->getStatusCode(), 'headers' => $response->headers, 'content' => $content];
+}
+
+/** Every file under the test disk, relative paths. @return list<string> */
+function diskFiles(): array
+{
+    $root = FancyCompliance\Tests\Support\TestApp::storagePath();
+    if (! is_dir($root)) {
+        return [];
+    }
+    $files = [];
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)) as $file) {
+        if ($file->isFile()) {
+            $files[] = str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPathname(), strlen($root) + 1));
+        }
+    }
+    sort($files);
+
+    return $files;
+}
+
+/**
+ * A registrant built from closures, as a host would register its own tables.
+ *
+ * @param  (Closure(FancyCompliance\DataRights\SubjectKeys, FancyCompliance\DataRights\ExportWriter): void)|null  $export
+ * @param  (Closure(FancyCompliance\DataRights\SubjectKeys, FancyCompliance\DataRights\ErasurePlan): void)|null  $erase
+ */
+function registrant(string $key, ?Closure $export = null, ?Closure $erase = null, int $holds = 0): FancyCompliance\DataRights\DataRegistrant
+{
+    return new class($key, $export, $erase, $holds) implements FancyCompliance\DataRights\DataRegistrant
+    {
+        public function __construct(private string $name, private ?Closure $exporter, private ?Closure $eraser, private int $held) {}
+
+        public function key(): string
+        {
+            return $this->name;
+        }
+
+        public function version(): string
+        {
+            return '9.9.9';
+        }
+
+        public function export(FancyCompliance\DataRights\SubjectKeys $keys, FancyCompliance\DataRights\ExportWriter $writer): void
+        {
+            if ($this->exporter !== null) {
+                ($this->exporter)($keys, $writer);
+            }
+        }
+
+        public function erase(FancyCompliance\DataRights\SubjectKeys $keys, FancyCompliance\DataRights\ErasurePlan $plan): void
+        {
+            if ($this->eraser !== null) {
+                ($this->eraser)($keys, $plan);
+            }
+        }
+
+        public function holds(FancyCompliance\DataRights\SubjectKeys $keys): int
+        {
+            return $this->held;
+        }
+    };
+}

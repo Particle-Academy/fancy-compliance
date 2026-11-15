@@ -49,6 +49,10 @@ final class TestApp
                 mkdir($base.$dir, 0777, true);
             }
         }
+        // A fresh private disk per boot, so no export file leaks between tests.
+        $storage = self::storagePath();
+        self::wipe($storage);
+        mkdir($storage, 0777, true);
         $app = new Application($base);
         $app->useConfigPath($base.'/config');
         $app->useLangPath($base.'/lang');
@@ -62,6 +66,7 @@ final class TestApp
             'database' => ['default' => 'sqlite', 'connections' => ['sqlite' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true]]],
             'session' => ['driver' => 'array', 'lifetime' => 120, 'expire_on_close' => false, 'encrypt' => false, 'cookie' => 'test_session', 'path' => '/', 'domain' => null, 'secure' => false, 'http_only' => true, 'same_site' => 'lax', 'lottery' => [0, 100]],
             'view' => ['paths' => [$base.'/views'], 'compiled' => $base.'/compiled'],
+            'filesystems' => ['default' => 'local', 'disks' => ['local' => ['driver' => 'local', 'root' => $storage, 'throw' => true]]],
             'logging' => ['default' => 'null', 'channels' => ['null' => ['driver' => 'monolog', 'handler' => NullHandler::class]]],
         ]);
         foreach ($config as $key => $value) {
@@ -82,6 +87,13 @@ final class TestApp
             $app->make(HttpKernelContract::class)->setMiddlewareGroups($kernelGroups);
         }
         $app->register(ComplianceServiceProvider::class);
+        // The package config is merged now (shallowly, under the host's keys), so
+        // nested test settings go in after it: an erasure key, then the test's own
+        // overrides again, which may set that key back to null.
+        $repository->set('fancy-compliance.data_rights.erasure.key', 'base64:'.base64_encode(str_repeat('e', 32)));
+        foreach ($config as $key => $value) {
+            $repository->set($key, $value);
+        }
 
         self::migrate(dirname(__DIR__, 2).'/database/migrations');
         Schema::create('users', function (Blueprint $table): void {
@@ -91,6 +103,23 @@ final class TestApp
         $app->boot();
 
         return $app;
+    }
+
+    public static function storagePath(): string
+    {
+        return sys_get_temp_dir().DIRECTORY_SEPARATOR.'fancy-compliance-tests'.DIRECTORY_SEPARATOR.'storage';
+    }
+
+    private static function wipe(string $dir): void
+    {
+        if (! is_dir($dir)) {
+            return;
+        }
+        $items = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($items as $item) {
+            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+        }
+        rmdir($dir);
     }
 
     private static function migrate(string $directory): void
