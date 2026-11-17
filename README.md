@@ -16,6 +16,13 @@ your processes. Have it reviewed by a lawyer before relying on it.
 - No dependencies beyond the Laravel components it integrates with.
 - Inertia is optional: the props are shared when `inertiajs/inertia-laravel` is installed.
 
+<!-- fancy-agents-note:start -->
+> **For agents.** Every Fancy package, this one included, is listed on the
+> Fancy MCP catalog server at `https://ui.particle.academy/mcp` (streamable HTTP, no API key;
+> MCP id `fancy-ui`), with install commands and docs. How an agent installs
+> and uses this package is in [AGENTS.md](https://github.com/Particle-Academy/fancy-compliance/blob/main/AGENTS.md).
+<!-- fancy-agents-note:end -->
+
 ## Install
 
 ```bash
@@ -160,11 +167,8 @@ your traffic. Add one in `routes.middleware`, for example `['web', 'throttle:30,
 
 ## Agents
 
-An agent may read consent state (`Consent::allows`, `Consent::state`, the props). **An agent
-must never record or withdraw consent on a person's behalf**: consent is the person's own
-act, and a choice someone else made for them is not consent. The record routes are for the
-person's own browser or app. This package ships no agent tool that writes, and any bridge
-built on it must be read-only.
+Agents may read consent state but never record or withdraw consent for a person; this
+package ships no agent tool that writes. The rule for agents is in [AGENTS.md](./AGENTS.md).
 
 ## Consent history
 
@@ -353,9 +357,8 @@ do not ask.
 
 ### Agents
 
-An agent may read export and erasure status. **An agent must never request an erasure or
-download an export for a person**: the UI fences those controls, and nothing here offers an
-agent tool that does either.
+Agents may read export and erasure status but never request an erasure or download an
+export for a person (see [AGENTS.md](./AGENTS.md)).
 
 **These are mechanisms, not legal advice.** Whether an export is complete, how long a grace
 period should be, and what must be kept are legal questions that depend on your
@@ -372,10 +375,7 @@ jurisdiction, your data and your processes. Have it reviewed by a lawyer before 
 
 ## Testing
 
-```bash
-composer test     # Pest 5, hand-built Laravel kernel, in-memory SQLite
-composer lint
-```
+`composer test` runs the Pest suite; see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
