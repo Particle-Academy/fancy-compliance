@@ -86,7 +86,7 @@ compliance with any law. Have it reviewed by a lawyer before relying on it.
   `--dry-run`. **Consumer action:** none. A host that scheduled `fancy-compliance:prune`
   keeps exactly the same behaviour; schedule `fancy-compliance:retention` instead once other
   packages register policies.
-- **Docs:** `AGENTS.md` is now the guide to using this package (install, its entries on the Fancy MCP catalog server, API essentials, traps). The contributor notes moved to `CONTRIBUTING.md`, and `CLAUDE.md` is now a symlink to it. The README points to the MCP server and to `AGENTS.md`. No code changed; nothing to do.
+- **Docs:** `AGENTS.md` is now the guide to using this package (install, its entries on the Fancy MCP catalog server, API essentials, traps). The contributor notes it held moved to `CONTRIBUTING.md`, and `CLAUDE.md` is now a symlink to it. The README points to the MCP server and to `AGENTS.md`. No code changed; nothing to do.
 
 ## [0.1.2] - 2026-11-07
 
